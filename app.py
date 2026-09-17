@@ -10,163 +10,93 @@ st.set_page_config(
 
 MODEL = "gpt-5.6-terra"
 
-SYSTEM_PROMPT = """
-You are Teaching Lab v1, a research assistant for an experienced public-speaking instructor.
+SYSTEM_PROMPT = (
+    "You are Teaching Lab v1, a research assistant for an experienced "
+    "public-speaking instructor. Your job is to investigate teaching questions, "
+    "not write a finished lecture or slide deck. Use web search when the question "
+    "depends on empirical evidence, recent research, current guidance, or claims "
+    "that should be verified. Prefer peer-reviewed research, universities, "
+    "professional associations, government sources, and primary sources. "
+    "Distinguish evidence from interpretation. Flag weak, mixed, old, indirect, "
+    "or contested evidence. Cite factual claims from web research. "
+    "Return a concise brief with these sections: Bottom line; What the evidence "
+    "suggests; What is less certain; Implications for teaching; One classroom "
+    "experiment; Questions worth researching next; Sources."
+)
 
-Your job is not to write a finished lecture or slide deck.
-Your job is to investigate a teaching question and help the instructor decide what is worth teaching.
-
-You have access to web search.
-
-Use web search when the question depends on:
-- empirical evidence
-- recent research
-- current guidance
-- claims that should be verified
-
-When you research:
-- Prefer peer-reviewed research, universities, professional associations,
-  government sources, and primary sources when available.
-- Distinguish evidence from interpretation.
-- Do not turn conventional textbook advice into "research findings"
-  unless evidence supports it.
-- Flag weak, mixed, old, indirect, or contested evidence.
-- Preserve room for the instructor to explain, question, and facilitate.
-- Cite factual claims that came from web research.
-
-Return a concise research brief with these headings:
-
-## Bottom line
-## What the evidence suggests
-## What is less certain
-## Implications for teaching
-## One classroom experiment
-## Questions worth researching next
-## Sources
-"""
-
-DEFAULT_QUESTION = """
-What does current research say about how college students evaluate
-the credibility of sources, and what should I change or emphasize
-when teaching source evaluation in an introductory public-speaking course?
-"""
+DEFAULT_QUESTION = (
+    "What does current research say about how college students evaluate the "
+    "credibility of sources, and what should I change or emphasize when teaching "
+    "source evaluation in an introductory public-speaking course?"
+)
 
 def get_api_key():
     key = os.getenv("OPENAI_API_KEY")
-
     if key:
         return key
-
     try:
         return st.secrets["OPENAI_API_KEY"]
     except Exception:
         return None
 
-
 def run_research(question, context):
-
     client = OpenAI(api_key=get_api_key())
 
-    user_input = f"""
-RESEARCH QUESTION:
+    user_input = (
+        "RESEARCH QUESTION:\n"
+        + question
+        + "\n\nCLASS CONTEXT:\n"
+        + context
+        + "\n\nInvestigate this question. Search the web when appropriate. "
+        + "Synthesize the evidence and distinguish strong findings from uncertainty."
+    )
 
-{question}
-
-CLASS CONTEXT:
-
-{context}
-
-Investigate this question.
-
-Search the web when appropriate.
-
-Synthesize rather than merely listing sources.
-
-Make clear what is well supported versus what remains uncertain.
-"""
-
-    response = client.responses.create(
+    return client.responses.create(
         model=MODEL,
         instructions=SYSTEM_PROMPT,
         input=user_input,
-        tools=[
-            {
-                "type": "web_search"
-            }
-        ],
+        tools=[{"type": "web_search"}],
         tool_choice="auto",
     )
 
-    return response
-
-
-def inspect_tool_use(response):
-
-    events = []
-
-    for item in response.output:
-
+def count_searches(response):
+    count = 0
+    for item in getattr(response, "output", []) or []:
         if getattr(item, "type", None) == "web_search_call":
-
-            events.append(
-                {
-                    "type": "web_search_call",
-                    "status": getattr(item, "status", "unknown"),
-                }
-            )
-
-    return events
-
+            count += 1
+    return count
 
 st.title("🔎 Teaching Lab v1")
-
-st.caption(
-    "Build 2: the model now has one tool — web search."
-)
+st.caption("Build 2: the model now has one external tool — web search.")
 
 with st.sidebar:
-
     st.subheader("Architecture")
-
     st.code(
-        """
-question
-   ↓
-model
-   ↓ decides
-web search
-   ↓
-evidence
-   ↓
-model
-   ↓
-research brief
-"""
+        "question\n"
+        "  ↓\n"
+        "model\n"
+        "  ↓ decides\n"
+        "web search\n"
+        "  ↓\n"
+        "evidence\n"
+        "  ↓\n"
+        "model\n"
+        "  ↓\n"
+        "research brief"
     )
 
     st.markdown(
-        """
-### New in v1
-
-- Web search tool
-- Model decides whether to use it
-- Evidence can affect the answer
-- Visible tool-event inspection
-
-### Still missing
-
-- Persistent memory
-- Saved research database
-- File tools
-- Agent loop
-- Multiple agents
-"""
+        "**New in v1**\n"
+        "- Web search\n"
+        "- Model chooses whether to search\n"
+        "- Evidence feeds back into the answer\n\n"
+        "**Not yet**\n"
+        "- Persistent memory\n"
+        "- Saved research database\n"
+        "- File tools\n"
+        "- Agent loop\n"
+        "- Multiple agents"
     )
-
-    st.divider()
-
-    st.caption(f"Model: {MODEL}")
-
 
 question = st.text_area(
     "Research question",
@@ -176,125 +106,43 @@ question = st.text_area(
 
 context = st.text_area(
     "Class context",
-    value="""
-Introductory undergraduate public speaking.
-
-Students have already covered:
-audience analysis, topic, general purpose,
-specific purpose, and central idea.
-
-Next they will work on gathering and evaluating
-sources and developing main points.
-""",
-    height=150,
+    value=(
+        "Introductory undergraduate public speaking. Students have covered "
+        "audience analysis, topic, general purpose, specific purpose, and central idea. "
+        "Next they will work on gathering and evaluating sources and developing main points."
+    ),
+    height=140,
 )
 
-
-if st.button(
-    "Research this",
-    type="primary",
-    use_container_width=True
-):
+if st.button("Research this", type="primary", use_container_width=True):
 
     if not get_api_key():
-
-        st.error(
-            """
-No OpenAI API key was found.
-
-We will add this securely when we deploy the app.
-"""
-        )
-
+        st.error("No OpenAI API key found in Streamlit Secrets.")
         st.stop()
 
-    if not question.strip():
-
-        st.warning(
-            "Enter a research question."
-        )
-
-        st.stop()
-
-    with st.spinner(
-        "The model may decide to search the web..."
-    ):
-
+    with st.spinner("Researching..."):
         try:
-
-            response = run_research(
-                question,
-                context
-            )
-
+            response = run_research(question, context)
         except Exception as exc:
-
             st.exception(exc)
-
             st.stop()
 
-    st.success(
-        "Research complete."
-    )
-
-    st.markdown(
-        response.output_text
-    )
-
-    events = inspect_tool_use(
-        response
-    )
+    st.markdown(response.output_text)
 
     st.divider()
+    st.subheader("🔬 Engineering view")
 
-    st.subheader(
-        "🔬 Engineering view"
-    )
+    searches = count_searches(response)
 
-    if events:
-
-        st.success(
-            f"The model used web search {len(events)} time(s)."
-        )
-
-        for i, event in enumerate(
-            events,
-            start=1
-        ):
-
-            with st.expander(
-                f"Tool event {i}: web search"
-            ):
-
-                st.json(event)
-
+    if searches:
+        st.success(f"The model used web search {searches} time(s).")
     else:
+        st.info("No web search was used for this run.")
 
-        st.info(
-            """
-No web-search event appeared in this run.
-
-Because tool_choice="auto",
-the model is allowed to decide
-that search is unnecessary.
-"""
-        )
-
-    with st.expander(
-        "What changed from v0?"
-    ):
-
-        st.markdown(
-            """
-In **v0**:
-
-`question → model → answer`
-
-In **v1**:
-
-`question → model → search → evidence → model → answer`
-
-The important new code is:
-
-```python
-tools=[{"type": "web_search"}]
+    st.markdown(
+        "**What changed from v0?**\n\n"
+        "v0: `question → model → answer`\n\n"
+        "v1: `question → model → search → evidence → model → answer`\n\n"
+        "The key addition is:\n\n"
+        '`tools=[{"type": "web_search"}]`'
+    )

@@ -1,211 +1,300 @@
-import json
 import os
 import streamlit as st
 from openai import OpenAI
 
 st.set_page_config(
-    page_title="Teaching Lab v0",
-    page_icon="🧪",
+    page_title="Teaching Lab v1",
+    page_icon="🔎",
     layout="wide",
 )
 
 MODEL = "gpt-5.6-terra"
 
 SYSTEM_PROMPT = """
-You are the first, deliberately non-agentic version of a Public Speaking Teaching Lab.
+You are Teaching Lab v1, a research assistant for an experienced public-speaking instructor.
 
-Your job is to help an experienced public-speaking instructor THINK about a teaching topic.
-You are NOT doing live research in this version. Do not claim that you searched the web,
-read current papers, or verified recent evidence.
+Your job is not to write a finished lecture or slide deck.
+Your job is to investigate a teaching question and help the instructor decide what is worth teaching.
 
-Separate established/common teaching practice from questions that require evidence.
-Be intellectually serious, concise, skeptical of clichés, and useful for undergraduate
-introductory public-speaking instruction.
+You have access to web search.
 
-Important teaching preference:
-- Do not turn the response into a finished lecture or slide deck.
+Use web search when the question depends on:
+- empirical evidence
+- recent research
+- current guidance
+- claims that should be verified
+
+When you research:
+- Prefer peer-reviewed research, universities, professional associations,
+  government sources, and primary sources when available.
+- Distinguish evidence from interpretation.
+- Do not turn conventional textbook advice into "research findings"
+  unless evidence supports it.
+- Flag weak, mixed, old, indirect, or contested evidence.
 - Preserve room for the instructor to explain, question, and facilitate.
-- Prefer provocative questions, distinctions, and teachable tensions over walls of content.
+- Cite factual claims that came from web research.
+
+Return a concise research brief with these headings:
+
+## Bottom line
+## What the evidence suggests
+## What is less certain
+## Implications for teaching
+## One classroom experiment
+## Questions worth researching next
+## Sources
 """
 
-TEACHING_BRIEF_SCHEMA = {
-    "type": "json_schema",
-    "name": "teaching_brief",
-    "description": "A structured preliminary teaching brief that does not pretend to be live research.",
-    "strict": True,
-    "schema": {
-        "type": "object",
-        "properties": {
-            "topic": {"type": "string"},
-            "framing": {"type": "string"},
-            "conventional_wisdom": {
-                "type": "array",
-                "items": {"type": "string"}
-            },
-            "questions_for_evidence": {
-                "type": "array",
-                "items": {"type": "string"}
-            },
-            "potential_misconceptions": {
-                "type": "array",
-                "items": {"type": "string"}
-            },
-            "teaching_possibilities": {
-                "type": "array",
-                "items": {"type": "string"}
-            },
-            "research_agenda": {
-                "type": "array",
-                "items": {"type": "string"}
-            }
-        },
-        "required": [
-            "topic",
-            "framing",
-            "conventional_wisdom",
-            "questions_for_evidence",
-            "potential_misconceptions",
-            "teaching_possibilities",
-            "research_agenda"
-        ],
-        "additionalProperties": False
-    }
-}
+DEFAULT_QUESTION = """
+What does current research say about how college students evaluate
+the credibility of sources, and what should I change or emphasize
+when teaching source evaluation in an introductory public-speaking course?
+"""
 
 def get_api_key():
-    # Local environment variable first.
     key = os.getenv("OPENAI_API_KEY")
+
     if key:
         return key
 
-    # Streamlit secrets second.
     try:
         return st.secrets["OPENAI_API_KEY"]
     except Exception:
         return None
 
-def build_teaching_brief(topic: str, investigation: str, class_context: str):
+
+def run_research(question, context):
+
     client = OpenAI(api_key=get_api_key())
 
-    user_prompt = f"""
-TOPIC:
-{topic}
+    user_input = f"""
+RESEARCH QUESTION:
 
-WHAT I WANT TO INVESTIGATE:
-{investigation}
+{question}
 
 CLASS CONTEXT:
-{class_context if class_context.strip() else "Introductory undergraduate public speaking."}
 
-Create a preliminary teaching brief.
+{context}
 
-Remember: this version has no research tools. If a claim would need current or empirical
-verification, turn it into a question for evidence rather than presenting it as verified fact.
+Investigate this question.
+
+Search the web when appropriate.
+
+Synthesize rather than merely listing sources.
+
+Make clear what is well supported versus what remains uncertain.
 """
 
     response = client.responses.create(
         model=MODEL,
         instructions=SYSTEM_PROMPT,
-        input=user_prompt,
-        text={"format": TEACHING_BRIEF_SCHEMA},
+        input=user_input,
+        tools=[
+            {
+                "type": "web_search"
+            }
+        ],
+        tool_choice="auto",
     )
 
-    return json.loads(response.output_text)
+    return response
 
-def render_list(items):
-    for item in items:
-        st.markdown(f"- {item}")
 
-st.title("🧪 Teaching Lab v0")
-st.caption("Build 1: model + prompt + structured output. No search. No memory. No agent loop.")
+def inspect_tool_use(response):
+
+    events = []
+
+    for item in response.output:
+
+        if getattr(item, "type", None) == "web_search_call":
+
+            events.append(
+                {
+                    "type": "web_search_call",
+                    "status": getattr(item, "status", "unknown"),
+                }
+            )
+
+    return events
+
+
+st.title("🔎 Teaching Lab v1")
+
+st.caption(
+    "Build 2: the model now has one tool — web search."
+)
 
 with st.sidebar:
-    st.subheader("What exists in v0")
-    st.markdown("""
-**Yes**
-- A web interface
-- A model API call
-- Application instructions
-- Structured JSON output
 
-**Not yet**
-- Web search
-- Source reading
-- Memory
-- Tools
+    st.subheader("Architecture")
+
+    st.code(
+        """
+question
+   ↓
+model
+   ↓ decides
+web search
+   ↓
+evidence
+   ↓
+model
+   ↓
+research brief
+"""
+    )
+
+    st.markdown(
+        """
+### New in v1
+
+- Web search tool
+- Model decides whether to use it
+- Evidence can affect the answer
+- Visible tool-event inspection
+
+### Still missing
+
+- Persistent memory
+- Saved research database
+- File tools
 - Agent loop
 - Multiple agents
-    """)
+"""
+    )
+
     st.divider()
+
     st.caption(f"Model: {MODEL}")
 
-topic = st.text_input(
-    "Teaching topic",
-    value="Public speaking anxiety",
-    placeholder="e.g. audience analysis, informative speaking, nonverbal communication",
+
+question = st.text_area(
+    "Research question",
+    value=DEFAULT_QUESTION,
+    height=150,
 )
 
-investigation = st.text_area(
-    "What do you want to investigate?",
-    value="How should I teach this to introductory public-speaking students?",
-    height=100,
+context = st.text_area(
+    "Class context",
+    value="""
+Introductory undergraduate public speaking.
+
+Students have already covered:
+audience analysis, topic, general purpose,
+specific purpose, and central idea.
+
+Next they will work on gathering and evaluating
+sources and developing main points.
+""",
+    height=150,
 )
 
-class_context = st.text_area(
-    "Optional class context",
-    value="Students are preparing their first informative speech. I want activities that make them think rather than slides that give away every answer.",
-    height=100,
-)
 
-run = st.button("Generate teaching brief", type="primary", use_container_width=True)
+if st.button(
+    "Research this",
+    type="primary",
+    use_container_width=True
+):
 
-if run:
     if not get_api_key():
+
         st.error(
-            "No OpenAI API key was found. Add OPENAI_API_KEY as an environment variable "
-            "or in .streamlit/secrets.toml."
+            """
+No OpenAI API key was found.
+
+We will add this securely when we deploy the app.
+"""
         )
+
         st.stop()
 
-    if not topic.strip() or not investigation.strip():
-        st.warning("Add a topic and a question to investigate.")
+    if not question.strip():
+
+        st.warning(
+            "Enter a research question."
+        )
+
         st.stop()
 
-    with st.spinner("Thinking..."):
+    with st.spinner(
+        "The model may decide to search the web..."
+    ):
+
         try:
-            brief = build_teaching_brief(topic, investigation, class_context)
+
+            response = run_research(
+                question,
+                context
+            )
+
         except Exception as exc:
+
             st.exception(exc)
+
             st.stop()
 
-    st.success("Teaching brief generated.")
-
-    st.subheader(brief["topic"])
-    st.write(brief["framing"])
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("### 1. Conventional teaching wisdom")
-        render_list(brief["conventional_wisdom"])
-
-        st.markdown("### 2. Questions for the evidence")
-        render_list(brief["questions_for_evidence"])
-
-        st.markdown("### 3. Potential misconceptions")
-        render_list(brief["potential_misconceptions"])
-
-    with col2:
-        st.markdown("### 4. Teaching possibilities")
-        render_list(brief["teaching_possibilities"])
-
-        st.markdown("### 5. Research agenda")
-        render_list(brief["research_agenda"])
-
-    with st.expander("See the structured data the app received"):
-        st.json(brief)
-
-    st.info(
-        "Engineering note: the model did not choose any action here. "
-        "The application sent one request and displayed one structured response. "
-        "That is why v0 is an AI app, not an agent."
+    st.success(
+        "Research complete."
     )
+
+    st.markdown(
+        response.output_text
+    )
+
+    events = inspect_tool_use(
+        response
+    )
+
+    st.divider()
+
+    st.subheader(
+        "🔬 Engineering view"
+    )
+
+    if events:
+
+        st.success(
+            f"The model used web search {len(events)} time(s)."
+        )
+
+        for i, event in enumerate(
+            events,
+            start=1
+        ):
+
+            with st.expander(
+                f"Tool event {i}: web search"
+            ):
+
+                st.json(event)
+
+    else:
+
+        st.info(
+            """
+No web-search event appeared in this run.
+
+Because tool_choice="auto",
+the model is allowed to decide
+that search is unnecessary.
+"""
+        )
+
+    with st.expander(
+        "What changed from v0?"
+    ):
+
+        st.markdown(
+            """
+In **v0**:
+
+`question → model → answer`
+
+In **v1**:
+
+`question → model → search → evidence → model → answer`
+
+The important new code is:
+
+```python
+tools=[{"type": "web_search"}]
